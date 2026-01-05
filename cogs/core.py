@@ -29,69 +29,7 @@ def save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def detect_emotion(self, text, lang):
-    t = text.lower()
 
-    if any(x in t for x in ["!", "！？", "!!"]):
-        return "excited"
-
-    if any(x in t for x in ["w", "lol", "草"]):
-        return "joking"
-
-    if any(x in t for x in ["wtf", "は？", "なにそれ"]):
-        return "angry"
-
-    if "?" in t or "？" in t:
-        return "question"
-
-    return "neutral"
-    
-def log_context(self, message, meaning_id, emotion):
-    cid = str(message.channel.id)
-
-    self.context_logs.setdefault(
-        cid, deque(maxlen=self.CONTEXT_WINDOW)
-    )
-
-    self.context_logs[cid].append({
-        "timestamp": message.created_at.timestamp(),
-        "content": message.content,
-        "meaning_id": meaning_id,
-        "emotion": emotion
-    })
-
-    if meaning_id:
-        self.meaning_clusters[cid][meaning_id] += 1
-        self.learn_meaning_distance(str(message.channel.id))
-
-def learn_meaning_distance(self, channel_id):
-    logs = list(self.context_logs.get(channel_id, []))
-
-    for i in range(len(logs) - 1):
-        a = logs[i]["meaning_id"]
-        b = logs[i + 1]["meaning_id"]
-
-        if not a or not b or a == b:
-            continue
-
-        self.meaning_distance[a][b] += 0.1
-        self.meaning_distance[b][a] += 0.1
-    
-def decay_confidence(self):
-    now = time.time()
-    elapsed = now - self.last_decay_check
-
-    if elapsed < 3600:
-        return  # 1時間に1回で十分
-
-    for entry in self.translate_db["entries"].values():
-        conf = entry.get("confidence", 0.3)
-
-        decay_factor = 0.5 ** (elapsed / self.CONFIDENCE_HALF_LIFE)
-        entry["confidence"] = max(0.05, conf * decay_factor)
-
-    self.last_decay_check = now
-    save_json(DATA_PATH, self.translate_db)
     
 class Core(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -105,6 +43,69 @@ class Core(commands.Cog):
         self.last_decay_check = time.time()
         self.CONFIDENCE_HALF_LIFE = 60 * 60 * 24 * 7  # 7日
 
+    def detect_emotion(self, text, lang):
+        t = text.lower()
+
+        if any(x in t for x in ["!", "！？", "!!"]):
+            return "excited"
+
+        if any(x in t for x in ["w", "lol", "草"]):
+            return "joking"
+
+        if any(x in t for x in ["wtf", "は？", "なにそれ"]):
+            return "angry"
+
+        if "?" in t or "？" in t:
+            return "question"
+
+        return "neutral"
+    
+    def log_context(self, message, meaning_id, emotion):
+        cid = str(message.channel.id)
+
+        self.context_logs.setdefault(
+            cid, deque(maxlen=self.CONTEXT_WINDOW)
+        )
+
+        self.context_logs[cid].append({
+            "timestamp": message.created_at.timestamp(),
+            "content": message to.content,
+            "meaning_id": meaning_id,
+            "emotion": emotion
+        })
+
+        if meaning_id:
+            self.meaning_clusters[cid][meaning_id] += 1
+            self.learn_meaning_distance(str(message.channel.id))
+
+    def learn_meaning_distance(self, channel_id):
+        logs = list(self.context_logs.get(channel_id, []))
+
+        for i in range(len(logs) - 1):
+            a = logs[i]["meaning_id"]
+            b = logs[i + 1]["meaning_id"]
+
+            if not a or not b or a == b:
+                continue
+
+            self.meaning_distance[a][b] += 0.1
+            self.meaning_distance[b][a] += 0.1
+    
+    def decay_confidence(self):
+        now = time.time()
+        elapsed = now - self.last_decay_check
+
+        if elapsed < 3600:
+            return  # 1時間に1回で十分
+
+        for entry in self.translate_db["entries"].values():
+            conf = entry.get("confidence", 0.3)
+
+            decay_factor = 0.5 ** (elapsed / self.CONFIDENCE_HALF_LIFE)
+            entry["confidence"] = max(0.05, conf * decay_factor)
+
+        self.last_decay_check = now
+        save_json(DATA_PATH, self.translate_db)
     # =========================
     # /setchat
     # =========================
@@ -193,7 +194,13 @@ class Core(commands.Cog):
                     if log["meaning_id"] == eid:
                         score += 0.3
                         break
+            # 直近意味との距離補正
+            recent_meaning = None
+            if logs:
+                recent_meaning = logs[-1]["meaning_id"]
 
+            if recent_meaning and eid in self.meaning_distance[recent_meaning]:
+                score += self.meaning_distance[recent_meaning][eid] * 0.3
             scored.append((eid, max(score, 0.01)))
 
         if not scored:
@@ -215,13 +222,7 @@ class Core(commands.Cog):
                 return results, eid, emotion
 
         return None, None, emotion
-        # 直近意味との距離補正
-        recent_meaning = None
-        if logs:
-            recent_meaning = logs[-1]["meaning_id"]
-
-        if recent_meaning and eid in self.meaning_distance[recent_meaning]:
-            score += self.meaning_distance[recent_meaning][eid] * 0.3
+        
     
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -250,28 +251,6 @@ class Core(commands.Cog):
 
         self.log_context(message, meaning_id, emotion)
         await self.broadcast(message, translated, source_lang)
-    # =========================
-    # JSON翻訳
-    # =========================
-    def translate_from_json(self, text, src_lang):
-        for eid, entry in self.translate_db["entries"].items():
-            if src_lang not in entry["languages"]:
-                continue
-
-            for phrase in entry["languages"][src_lang]:
-                ratio = SequenceMatcher(None, text.lower(), phrase.lower()).ratio()
-
-                if ratio > 0.9:
-                    self.adjust_confidence(entry, +0.05 if ratio > 0.97 else +0.02)
-
-                    results = {}
-                    for lang, variants in entry["languages"].items():
-                        results[lang] = variants[0]
-
-                    save_json(DATA_PATH, self.translate_db)
-                    return results, entry
-
-        return None, None
 
     # =========================
     # Google API 翻訳
@@ -337,7 +316,7 @@ class Core(commands.Cog):
                 await sent.add_reaction("❓")
 
     # =========================
-    # ❓リアクション
+    # ❓リアクション（統合版）
     # =========================
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction, user):
@@ -346,6 +325,7 @@ class Core(commands.Cog):
 
         message = reaction.message
 
+        # confidence を軽く下げる（疑義が出た時点で）
         for entry in self.translate_db["entries"].values():
             for variants in entry["languages"].values():
                 if message.content in variants:
@@ -353,10 +333,21 @@ class Core(commands.Cog):
                     save_json(DATA_PATH, self.translate_db)
                     break
 
-        await message.channel.send_modal(
-            TranslationFixModal(self, message)
+        embed = discord.Embed(
+            title="翻訳の扱いを選択してください",
+            description=(
+                "この翻訳はどう扱いますか？\n\n"
+                "🛠 修正 → 表現を追加\n"
+                "🧬 統合 → 別の意味IDにまとめる\n"
+            ),
+            color=0xF1C40F
         )
 
+        await message.channel.send(
+            embed=embed,
+            view=TranslationActionView(self, message)
+        )
+    
 class TranslationFixModal(discord.ui.Modal, title="翻訳修正"):
 
     def __init__(self, cog, message):
@@ -475,31 +466,6 @@ class MeaningMergeView(discord.ui.View):
             ephemeral=True
         )
         self.stop()
-
-# =========================
-# ❓リアクション拡張
-# =========================
-@commands.Cog.listener()
-async def on_reaction_add(self, reaction, user):
-    if user.bot or str(reaction.emoji) != "❓":
-        return
-
-    message = reaction.message
-
-    embed = discord.Embed(
-        title="翻訳の扱いを選択してください",
-        description=(
-            "この翻訳はどう扱いますか？\n\n"
-            "🛠 修正 → 表現を追加\n"
-            "🧬 統合 → 別の意味IDにまとめる\n"
-        ),
-        color=0xF1C40F
-    )
-
-    await message.channel.send(
-        embed=embed,
-        view=TranslationActionView(self, message)
-    )
 
 # =========================
 # 行動選択 View
