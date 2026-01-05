@@ -141,6 +141,7 @@ class Core(commands.Cog):
     @app_commands.command(name="setchat", description="このチャンネルを翻訳連携に追加します")
     @app_commands.describe(lang="チャンネルの言語")
     async def setchat(self, interaction: discord.Interaction, lang: str):
+        await interaction.response.defer(ephemeral=True)
         if lang not in SUPPORTED_LANGS:
             await interaction.response.send_message("未対応言語です", ephemeral=True)
             return
