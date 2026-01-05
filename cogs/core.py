@@ -385,7 +385,8 @@ class Core(commands.Cog):
             embed=embed,
             view=TranslationActionView(self, message)
         )
-    
+    async def cog_unload(self):
+        await self.http_session.close()
 class TranslationFixModal(discord.ui.Modal, title="翻訳修正"):
 
     def __init__(self, cog, message):
@@ -535,5 +536,3 @@ class TranslationActionView(discord.ui.View):
 
 async def setup(bot):
     await bot.add_cog(Core(bot))
-async def cog_unload(self):
-    await self.http_session.close()
