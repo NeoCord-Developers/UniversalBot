@@ -6,6 +6,7 @@ import os
 import aiohttp
 import asyncio
 from difflib import SequenceMatcher
+import time
 
 DATA_PATH = "data/dictionaries/translate.json"
 CHANNEL_CONFIG_PATH = "data/channel_links.json"
@@ -248,6 +249,138 @@ class TranslationFixModal(discord.ui.Modal, title="翻訳修正"):
             "⚠️ 対応する翻訳が見つかりませんでした。",
             ephemeral=True
         )
+        
+# =========================
+# 意味ID統合 View
+# =========================
+class MeaningMergeView(discord.ui.View):
+    def __init__(self, cog, message):
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.message = message
+
+        options = []
+        for eid, entry in cog.translate_db["entries"].items():
+            preview = []
+            for lang, words in entry["languages"].items():
+                preview.append(f"{lang}:{words[0]}")
+            label = f"ID {eid} | {' / '.join(preview[:2])}"
+            options.append(
+                discord.SelectOption(
+                    label=label[:100],
+                    value=eid,
+                    description=f"context={entry.get('context','unknown')}"
+                )
+            )
+
+        self.select = discord.ui.Select(
+            placeholder="統合先の意味IDを選択",
+            options=options[:25]
+        )
+        self.select.callback = self.on_select
+        self.add_item(self.select)
+
+    async def on_select(self, interaction: discord.Interaction):
+        target_id = self.select.values[0]
+
+        source_entry = None
+        for eid, entry in self.cog.translate_db["entries"].items():
+            for variants in entry["languages"].values():
+                if self.message.content in variants:
+                    source_entry = (eid, entry)
+                    break
+
+        if not source_entry:
+            await interaction.response.send_message(
+                "⚠️ 元の意味IDが見つかりません",
+                ephemeral=True
+            )
+            return
+
+        source_id, source = source_entry
+        target = self.cog.translate_db["entries"][target_id]
+
+        if source_id == target_id:
+            await interaction.response.send_message(
+                "⚠️ 同じIDです",
+                ephemeral=True
+            )
+            return
+
+        # languages をマージ
+        for lang, variants in source["languages"].items():
+            target.setdefault("languages", {}).setdefault(lang, [])
+            for v in variants:
+                if v not in target["languages"][lang]:
+                    target["languages"][lang].append(v)
+
+        # confidence 調整（統合は強い学習）
+        target["confidence"] = min(
+            max(target.get("confidence", 0.5), source.get("confidence", 0.5)) + 0.1,
+            1.0
+        )
+
+        target["last_modified"] = time.time()
+
+        # 元ID削除
+        del self.cog.translate_db["entries"][source_id]
+        save_json(DATA_PATH, self.cog.translate_db)
+
+        await interaction.response.send_message(
+            f"✅ 意味ID `{source_id}` を `{target_id}` に統合しました",
+            ephemeral=True
+        )
+        self.stop()
+
+# =========================
+# ❓リアクション拡張
+# =========================
+@commands.Cog.listener()
+async def on_reaction_add(self, reaction, user):
+    if user.bot or str(reaction.emoji) != "❓":
+        return
+
+    message = reaction.message
+
+    embed = discord.Embed(
+        title="翻訳の扱いを選択してください",
+        description=(
+            "この翻訳はどう扱いますか？\n\n"
+            "🛠 修正 → 表現を追加\n"
+            "🧬 統合 → 別の意味IDにまとめる\n"
+        ),
+        color=0xF1C40F
+    )
+
+    await message.channel.send(
+        embed=embed,
+        view=TranslationActionView(self, message)
+    )
+
+# =========================
+# 行動選択 View
+# =========================
+class TranslationActionView(discord.ui.View):
+    def __init__(self, cog, message):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.message = message
+
+    @discord.ui.button(label="🛠 修正", style=discord.ButtonStyle.primary)
+    async def fix(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(
+            TranslationFixModal(self.cog, self.message)
+        )
+        self.stop()
+
+    @discord.ui.button(label="🧬 意味ID統合", style=discord.ButtonStyle.secondary)
+    async def merge(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(
+            "統合先の意味IDを選んでください",
+            view=MeaningMergeView(self.cog, self.message),
+            ephemeral=True
+        )
+        self.stop()
 
 async def setup(bot):
     await bot.add_cog(Core(bot))
