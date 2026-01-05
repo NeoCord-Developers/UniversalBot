@@ -49,7 +49,7 @@ class Core(commands.Cog):
         if any(x in t for x in ["!", "！？", "!!"]):
             return "excited"
 
-        if any(x in t for x in ["w", "lol", "草"]):
+        if any(x in t.split() for x in ["w", "lol"]) or "草" in t:
             return "joking"
 
         if any(x in t for x in ["wtf", "は？", "なにそれ"]):
@@ -69,7 +69,7 @@ class Core(commands.Cog):
 
         self.context_logs[cid].append({
             "timestamp": message.created_at.timestamp(),
-            "content": message to.content,
+            "content": message.content,
             "meaning_id": meaning_id,
             "emotion": emotion
         })
@@ -281,7 +281,7 @@ class Core(commands.Cog):
         new_id = str(max(map(int, self.translate_db["entries"].keys()), default=1000) + 1)
 
         self.translate_db["entries"][new_id] = {
-            "context": "unknown",
+            "context": [],
             "confidence": 0.3,
             "last_modified": time.time(),
             "languages": {
