@@ -95,18 +95,22 @@ class Core(commands.Cog):
             self.meaning_clusters[cid][meaning_id] += 1
             self.learn_meaning_distance(str(message.channel.id))
 
-    def learn_meaning_distance(self, channel_id):
-        logs = list(self.context_logs.get(channel_id, []))
+    def learn_meaning_distance(self):
+        all_logs = []
+        for logs in self.context_logs.values():
+            all_logs.extend(logs)
 
-        for i in range(len(logs) - 1):
-            a = logs[i]["meaning_id"]
-            b = logs[i + 1]["meaning_id"]
+        all_logs.sort(key=lambda x: x["timestamp"])
+
+        for i in range(len(all_logs) - 1):
+            a = all_logs[i]["meaning_id"]
+            b = all_logs[i + 1]["meaning_id"]
 
             if not a or not b or a == b:
                 continue
 
-            self.meaning_distance[a][b] += 0.1
-            self.meaning_distance[b][a] += 0.1
+            self.meaning_distance[a][b] += 0.05
+            self.meaning_distance[b][a] += 0.05
 
         save_meaning_distance(MEANING_DISTANCE_PATH, self.meaning_distance)
     def decay_confidence(self):
