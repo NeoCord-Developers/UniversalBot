@@ -171,7 +171,67 @@ class Core(commands.Cog):
                 username=message.author.display_name,
                 avatar_url=message.author.display_avatar.url
             )
+            # broadcast 内の await webhook.send(...) の直後に追加
+            await sent_message.add_reaction("❓")
 
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction, user):
+        if user.bot:
+            return
 
+        if str(reaction.emoji) != "❓":
+            return
+
+        message = reaction.message
+        if not message.embeds and not message.content:
+            return
+
+        await message.channel.send_modal(
+            TranslationFixModal(self, message)
+        )
+        
+class TranslationFixModal(discord.ui.Modal, title="翻訳修正"):
+
+    def __init__(self, cog, message):
+        super().__init__()
+        self.cog = cog
+        self.message = message
+
+        self.correct_text = discord.ui.TextInput(
+            label="より自然な翻訳を入力してください",
+            style=discord.TextStyle.long,
+            required=True
+        )
+
+        self.add_item(self.correct_text)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        fixed = self.correct_text.value.strip()
+
+        updated = False
+
+        for eid, entry in self.cog.translate_db["entries"].items():
+            for lang, variants in entry["languages"].items():
+                if self.message.content in variants:
+                    if fixed not in variants:
+                        variants.append(fixed)
+                        entry["confidence"] = min(
+                            entry.get("confidence", 0.3) + 0.1,
+                            1.0
+                        )
+                        updated = True
+
+        if updated:
+            save_json(DATA_PATH, self.cog.translate_db)
+            await interaction.response.send_message(
+                "✅ 翻訳を修正しました。ありがとうございます。",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "⚠️ 該当する翻訳エントリが見つかりませんでした。",
+                ephemeral=True
+            )
+            
 async def setup(bot):
     await bot.add_cog(Core(bot))
