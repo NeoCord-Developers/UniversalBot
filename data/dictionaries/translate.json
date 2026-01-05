@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "version": 1,
+    "description": "UniversalBot Translation Dictionary"
+  },
+  "entries": {
+    "1001": {
+      "context": "casual_greeting",
+      "confidence": 0.85,
+      "languages": {
+        "ja": ["こんにちは", "やあ"],
+        "en": ["hello", "hi"],
+        "ko": ["안녕하세요"]
+      }
+    },
+    "1002": {
+      "context": "casual_surprise",
+      "confidence": 0.6,
+      "languages": {
+        "ja": ["なにそれ", "は？"],
+        "en": ["wtf"],
+        "ko": ["왜야"]
+      }
+    }
+  }
+}
