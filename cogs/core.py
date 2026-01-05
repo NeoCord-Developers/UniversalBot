@@ -122,14 +122,14 @@ class Core(commands.Cog):
             decay_factor = 0.5 ** (elapsed / self.CONFIDENCE_HALF_LIFE)
             entry["confidence"] = max(0.05, conf * decay_factor)
 
-        self.last_decay_check = now
-        save_json(DATA_PATH, self.translate_db)
         for entry in self.translate_db["entries"].values():
             ctx = entry.get("context", {}).get("emotion", {})
             for k in list(ctx.keys()):
                 ctx[k] *= decay_factor
                 if ctx[k] < 0.05:
                     del ctx[k]
+        self.last_decay_check = now
+        save_json(DATA_PATH, self.translate_db)
     # =========================
     # /setchat
     # =========================
@@ -282,25 +282,24 @@ class Core(commands.Cog):
     # =========================
     async def translate_api(self, text, src_lang):
         results = {}
-        async with aiohttp.ClientSession() as session:
-            for target in SUPPORTED_LANGS:
-                if target == src_lang:
+        for target in SUPPORTED_LANGS:
+            if target == src_lang:
+                continue
+            payload = {
+                "q": text,
+                "source": src_lang,
+                "target": target,
+                "key": GOOGLE_TRANSLATE_API_KEY
+            }
+            async with session.post(GOOGLE_TRANSLATE_URL, json=payload) as resp:
+                if resp.status != 200:
                     continue
-                payload = {
-                    "q": text,
-                    "source": src_lang,
-                    "target": target,
-                    "key": GOOGLE_TRANSLATE_API_KEY
-                }
-                async with session.post(GOOGLE_TRANSLATE_URL, json=payload) as resp:
-                    if resp.status != 200:
-                        continue
 
-                    data = await resp.json()
-                    try:
-                        results[target] = data["data"]["translations"][0]["translatedText"]
-                    except (KeyError, IndexError, TypeError):
-                        continue
+                data = await resp.json()
+                try:
+                    results[target] = data["data"]["translations"][0]["translatedText"]
+                except (KeyError, IndexError, TypeError):
+                    continue
 
         self.register_translation(text, src_lang, results)
         return results
