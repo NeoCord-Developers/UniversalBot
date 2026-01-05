@@ -1,11 +1,15 @@
 {
   "meta": {
-    "version": 1,
+    "version": 2,
     "description": "UniversalBot Translation Dictionary"
   },
   "entries": {
     "1001": {
-      "context": "casual_greeting",
+      "context": {
+        "tag": "casual_greeting",
+        "emotion": {},
+        "usage": {}
+      },
       "confidence": 0.85,
       "languages": {
         "ja": ["こんにちは", "やあ"],
@@ -14,7 +18,11 @@
       }
     },
     "1002": {
-      "context": "casual_surprise",
+      "context": {
+        "tag": "casual_surprise",
+        "emotion": {},
+        "usage": {}
+      },
       "confidence": 0.6,
       "languages": {
         "ja": ["なにそれ", "は？"],
