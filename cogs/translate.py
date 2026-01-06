@@ -7,6 +7,7 @@ import os
 import time
 from datetime import datetime
 from cogs.model import JsonAIModel
+import re
 import difflib
 
 # =========================
@@ -50,43 +51,64 @@ def append_json(path, data):
     save_json(path, logs)
 
 # =========================
-# Model翻訳
+# Model翻訳（長文対応）
 # =========================
 class ModelTranslator:
     """
     LangDictJson を使った自作翻訳
-    文単位・類似語で簡易翻訳も対応
+    文単位・類似語で翻訳、長文も対応
     """
     def __init__(self):
         self.lang_dict = load_json(LANGDICT_PATH, {"entries": {}})
 
-    def translate(self, text: str, src_lang: str):
-        result = {}
-        entries = self.lang_dict.get("entries", {})
+    def split_sentences(self, text: str):
+        """
+        文単位で分割（句点・改行ベース）
+        """
+        sentences = re.split(r'(?<=[。.!?])\s*', text)
+        return [s for s in sentences if s.strip()]
 
+    def translate_sentence(self, sentence: str, src_lang: str):
+        """
+        単一文を翻訳（完全一致 or 類似検索）
+        """
+        entries = self.lang_dict.get("entries", {})
         for eid, entry in entries.items():
             langs = entry.get("languages", {})
             if src_lang not in langs:
                 continue
 
             # 完全一致
-            if text in langs[src_lang]:
-                for target_lang, texts in langs.items():
-                    if target_lang == src_lang:
-                        continue
-                    result[target_lang] = texts[0]
-                return result
+            if sentence in langs[src_lang]:
+                return {tl: texts[0] for tl, texts in langs.items() if tl != src_lang}
 
-            # 類似文字列（近似検索）
+            # 類似文字列
             for candidate in langs[src_lang]:
-                ratio = difflib.SequenceMatcher(None, text, candidate).ratio()
-                if ratio > 0.7:  # 類似度70%以上
-                    for target_lang, texts in langs.items():
-                        if target_lang == src_lang:
-                            continue
-                        result[target_lang] = texts[0]
-                    return result
+                ratio = difflib.SequenceMatcher(None, sentence, candidate).ratio()
+                if ratio > 0.7:
+                    return {tl: texts[0] for tl, texts in langs.items() if tl != src_lang}
         return None
+
+    def translate(self, text: str, src_lang: str):
+        """
+        文単位で翻訳 → 結合
+        """
+        sentences = self.split_sentences(text)
+        final_result = {lang: "" for lang in SUPPORTED_LANGS if lang != src_lang}
+
+        for sentence in sentences:
+            translated = self.translate_sentence(sentence, src_lang)
+            if translated:
+                for lang, t in translated.items():
+                    final_result[lang] += t
+            else:
+                # 見つからなければ空文字（後でGeminiにフォールバック）
+                pass
+
+        # 空文字だけの場合はNoneを返す
+        if all(not v for v in final_result.values()):
+            return None
+        return final_result
 
 # =========================
 # 翻訳Cog
