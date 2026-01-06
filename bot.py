@@ -74,7 +74,7 @@ class UniversalBot(commands.Bot):
         """
         try:
             # 将来ここにCogを追加していく
-            await self.load_extension("cogs.core")
+            await self.load_extension("cogs. translate")
             await send_log(
                 "Startup",
                 "Core cogs loaded successfully.",
